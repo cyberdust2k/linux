@@ -15,8 +15,8 @@
 static inline bool __should_swizzle_bits(volatile void *a)
 {
 	extern const bool octeon_should_swizzle_table[];
+	u64 did = ((u64)(uintptr_t)a >> 40) & 0xff;
 
-	unsigned long did = ((unsigned long)a >> 40) & 0xff;
 	return octeon_should_swizzle_table[did];
 }
 
@@ -29,7 +29,7 @@ static inline bool __should_swizzle_bits(volatile void *a)
 
 #define __should_swizzle_bits(a)	false
 
-static inline bool __should_swizzle_addr(unsigned long p)
+static inline bool __should_swizzle_addr(u64 p)
 {
 	/* boot bus? */
 	return ((p >> 40) & 0xff) == 0;
@@ -48,11 +48,17 @@ static inline bool __should_swizzle_addr(unsigned long p)
 
 # define ioswabb(a, x)		(x)
 # define __mem_ioswabb(a, x)	(x)
-# define ioswabw(a, x)		(__should_swizzle_bits(a) ? le16_to_cpu(x) : x)
+# define ioswabw(a, x)		(__should_swizzle_bits(a) ?		\
+				 le16_to_cpu((__force __le16)(x)) :	\
+				 (x))
 # define __mem_ioswabw(a, x)	(x)
-# define ioswabl(a, x)		(__should_swizzle_bits(a) ? le32_to_cpu(x) : x)
+# define ioswabl(a, x)		(__should_swizzle_bits(a) ?		\
+				 le32_to_cpu((__force __le32)(x)) :	\
+				 (x))
 # define __mem_ioswabl(a, x)	(x)
-# define ioswabq(a, x)		(__should_swizzle_bits(a) ? le64_to_cpu(x) : x)
+# define ioswabq(a, x)		(__should_swizzle_bits(a) ?		\
+				 le64_to_cpu((__force __le64)(x)) :	\
+				 (x))
 # define __mem_ioswabq(a, x)	(x)
 
 #endif /* __ASM_MACH_GENERIC_MANGLE_PORT_H */

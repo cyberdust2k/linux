@@ -239,6 +239,7 @@ static int v9fs_xattr_get_acl(const struct xattr_handler *handler,
 }
 
 static int v9fs_xattr_set_acl(const struct xattr_handler *handler,
+			      struct user_namespace *mnt_userns,
 			      struct dentry *dentry, struct inode *inode,
 			      const char *name, const void *value,
 			      size_t size, int flags)
@@ -258,7 +259,7 @@ static int v9fs_xattr_set_acl(const struct xattr_handler *handler,
 
 	if (S_ISLNK(inode->i_mode))
 		return -EOPNOTSUPP;
-	if (!inode_owner_or_capable(inode))
+	if (!inode_owner_or_capable(&init_user_ns, inode))
 		return -EPERM;
 	if (value) {
 		/* update the cached acl value */
@@ -276,32 +277,29 @@ static int v9fs_xattr_set_acl(const struct xattr_handler *handler,
 	switch (handler->flags) {
 	case ACL_TYPE_ACCESS:
 		if (acl) {
-			umode_t mode = inode->i_mode;
-			retval = posix_acl_equiv_mode(acl, &mode);
-			if (retval < 0)
+			struct iattr iattr = { 0 };
+			struct posix_acl *old_acl = acl;
+
+			retval = posix_acl_update_mode(&init_user_ns, inode,
+						       &iattr.ia_mode, &acl);
+			if (retval)
 				goto err_out;
-			else {
-				struct iattr iattr;
-				if (retval == 0) {
-					/*
-					 * ACL can be represented
-					 * by the mode bits. So don't
-					 * update ACL.
-					 */
-					acl = NULL;
-					value = NULL;
-					size = 0;
-				}
-				/* Updte the mode bits */
-				iattr.ia_mode = ((mode & S_IALLUGO) |
-						 (inode->i_mode & ~S_IALLUGO));
-				iattr.ia_valid = ATTR_MODE;
-				/* FIXME should we update ctime ?
-				 * What is the following setxattr update the
-				 * mode ?
+			if (!acl) {
+				/*
+				 * ACL can be represented
+				 * by the mode bits. So don't
+				 * update ACL.
 				 */
-				v9fs_vfs_setattr_dotl(dentry, &iattr);
+				posix_acl_release(old_acl);
+				value = NULL;
+				size = 0;
 			}
+			iattr.ia_valid = ATTR_MODE;
+			/* FIXME should we update ctime ?
+			 * What is the following setxattr update the
+			 * mode ?
+			 */
+			v9fs_vfs_setattr_dotl(&init_user_ns, dentry, &iattr);
 		}
 		break;
 	case ACL_TYPE_DEFAULT:

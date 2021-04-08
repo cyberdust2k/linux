@@ -1,14 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) STMicroelectronics SA 2014
  * Authors: Vincent Abriou <vincent.abriou@st.com>
  *          Fabien Dessenne <fabien.dessenne@st.com>
  *          for STMicroelectronics.
- * License terms:  GNU General Public License (GPL), version 2
  */
 
+#include <linux/dma-mapping.h>
 #include <linux/seq_file.h>
 
 #include <drm/drm_atomic.h>
+#include <drm/drm_device.h>
 #include <drm/drm_fb_cma_helper.h>
 #include <drm/drm_gem_cma_helper.h>
 
@@ -33,7 +35,7 @@
 #define STI_CURS_MAX_SIZE   128
 
 /*
- * pixmap dma buffer stucture
+ * pixmap dma buffer structure
  *
  * @paddr:  physical address
  * @size:   buffer size
@@ -45,7 +47,7 @@ struct dma_pixmap {
 	void *base;
 };
 
-/**
+/*
  * STI Cursor structure
  *
  * @sti_plane:    sti_plane structure
@@ -121,8 +123,7 @@ static int cursor_dbg_show(struct seq_file *s, void *data)
 	cursor_dbg_cml(s, cursor, readl(cursor->regs + CUR_CML));
 	DBGFS_DUMP(CUR_AWS);
 	DBGFS_DUMP(CUR_AWE);
-	seq_puts(s, "\n");
-
+	seq_putc(s, '\n');
 	return 0;
 }
 
@@ -130,17 +131,17 @@ static struct drm_info_list cursor_debugfs_files[] = {
 	{ "cursor", cursor_dbg_show, 0, NULL },
 };
 
-static int cursor_debugfs_init(struct sti_cursor *cursor,
-			       struct drm_minor *minor)
+static void cursor_debugfs_init(struct sti_cursor *cursor,
+				struct drm_minor *minor)
 {
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(cursor_debugfs_files); i++)
 		cursor_debugfs_files[i].data = cursor;
 
-	return drm_debugfs_create_files(cursor_debugfs_files,
-					ARRAY_SIZE(cursor_debugfs_files),
-					minor->debugfs_root, minor);
+	drm_debugfs_create_files(cursor_debugfs_files,
+				 ARRAY_SIZE(cursor_debugfs_files),
+				 minor->debugfs_root, minor);
 }
 
 static void sti_cursor_argb8888_to_clut8(struct sti_cursor *cursor, u32 *src)
@@ -309,15 +310,15 @@ static void sti_cursor_atomic_disable(struct drm_plane *drm_plane,
 {
 	struct sti_plane *plane = to_sti_plane(drm_plane);
 
-	if (!drm_plane->crtc) {
+	if (!oldstate->crtc) {
 		DRM_DEBUG_DRIVER("drm plane:%d not enabled\n",
 				 drm_plane->base.id);
 		return;
 	}
 
 	DRM_DEBUG_DRIVER("CRTC:%d (%s) drm plane:%d (%s)\n",
-			 drm_plane->crtc->base.id,
-			 sti_mixer_to_str(to_sti_mixer(drm_plane->crtc)),
+			 oldstate->crtc->base.id,
+			 sti_mixer_to_str(to_sti_mixer(oldstate->crtc)),
 			 drm_plane->base.id, sti_plane_to_str(plane));
 
 	plane->status = STI_PLANE_DISABLING;
@@ -329,27 +330,20 @@ static const struct drm_plane_helper_funcs sti_cursor_helpers_funcs = {
 	.atomic_disable = sti_cursor_atomic_disable,
 };
 
-static void sti_cursor_destroy(struct drm_plane *drm_plane)
-{
-	DRM_DEBUG_DRIVER("\n");
-
-	drm_plane_helper_disable(drm_plane);
-	drm_plane_cleanup(drm_plane);
-}
-
 static int sti_cursor_late_register(struct drm_plane *drm_plane)
 {
 	struct sti_plane *plane = to_sti_plane(drm_plane);
 	struct sti_cursor *cursor = to_sti_cursor(plane);
 
-	return cursor_debugfs_init(cursor, drm_plane->dev->primary);
+	cursor_debugfs_init(cursor, drm_plane->dev->primary);
+
+	return 0;
 }
 
-struct drm_plane_funcs sti_cursor_plane_helpers_funcs = {
+static const struct drm_plane_funcs sti_cursor_plane_helpers_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
-	.destroy = sti_cursor_destroy,
-	.set_property = drm_atomic_helper_plane_set_property,
+	.destroy = drm_plane_cleanup,
 	.reset = sti_plane_reset,
 	.atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
@@ -393,7 +387,7 @@ struct drm_plane *sti_cursor_create(struct drm_device *drm_dev,
 				       &sti_cursor_plane_helpers_funcs,
 				       cursor_supported_formats,
 				       ARRAY_SIZE(cursor_supported_formats),
-				       DRM_PLANE_TYPE_CURSOR, NULL);
+				       NULL, DRM_PLANE_TYPE_CURSOR, NULL);
 	if (res) {
 		DRM_ERROR("Failed to initialize universal plane\n");
 		goto err_plane;

@@ -1,19 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * pcl726.c
  * Comedi driver for 6/12-Channel D/A Output and DIO cards
  *
  * COMEDI - Linux Control and Measurement Device Interface
  * Copyright (C) 1998 David A. Schleef <ds@schleef.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 /*
@@ -229,9 +220,11 @@ static irqreturn_t pcl726_interrupt(int irq, void *d)
 	struct pcl726_private *devpriv = dev->private;
 
 	if (devpriv->cmd_running) {
+		unsigned short val = 0;
+
 		pcl726_intr_cancel(dev, s);
 
-		comedi_buf_write_samples(s, &s->state, 1);
+		comedi_buf_write_samples(s, &val, 1);
 		comedi_handle_events(dev, s);
 	}
 
@@ -398,7 +391,7 @@ static int pcl726_attach(struct comedi_device *dev,
 	}
 
 	if (dev->irq) {
-		/* Digial Input subdevice - Interrupt support */
+		/* Digital Input subdevice - Interrupt support */
 		s = &dev->subdevices[subdev++];
 		dev->read_subdev = s;
 		s->type		= COMEDI_SUBD_DI;
@@ -427,6 +420,6 @@ static struct comedi_driver pcl726_driver = {
 };
 module_comedi_driver(pcl726_driver);
 
-MODULE_AUTHOR("Comedi http://www.comedi.org");
+MODULE_AUTHOR("Comedi https://www.comedi.org");
 MODULE_DESCRIPTION("Comedi driver for Advantech PCL-726 & compatibles");
 MODULE_LICENSE("GPL");

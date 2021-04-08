@@ -1,7 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (C) ST Ericsson SA 2011
- *
- * License Terms: GNU General Public License v2
  *
  * STE Ux500 PRCMU API
  */
@@ -191,6 +190,7 @@ enum ddr_pwrst {
 #define PRCMU_FW_PROJECT_U8500_MBL2	12 /* Customer specific */
 #define PRCMU_FW_PROJECT_U8520		13
 #define PRCMU_FW_PROJECT_U8420		14
+#define PRCMU_FW_PROJECT_U8420_SYSCLK	17
 #define PRCMU_FW_PROJECT_A9420		20
 /* [32..63] 9540 and derivatives */
 #define PRCMU_FW_PROJECT_U9540		32
@@ -212,9 +212,9 @@ struct prcmu_fw_version {
 
 #if defined(CONFIG_UX500_SOC_DB8500)
 
-static inline void prcmu_early_init(u32 phy_base, u32 size)
+static inline void prcmu_early_init(void)
 {
-	return db8500_prcmu_early_init(phy_base, size);
+	return db8500_prcmu_early_init();
 }
 
 static inline int prcmu_set_power_state(u8 state, bool keep_ulp_clk,
@@ -269,10 +269,6 @@ unsigned long prcmu_clock_rate(u8 clock);
 long prcmu_round_clock_rate(u8 clock, unsigned long rate);
 int prcmu_set_clock_rate(u8 clock, unsigned long rate);
 
-static inline int prcmu_set_ddr_opp(u8 opp)
-{
-	return db8500_prcmu_set_ddr_opp(opp);
-}
 static inline int prcmu_get_ddr_opp(void)
 {
 	return db8500_prcmu_get_ddr_opp();
@@ -323,21 +319,6 @@ static inline void prcmu_modem_reset(void)
 static inline bool prcmu_is_ac_wake_requested(void)
 {
 	return db8500_prcmu_is_ac_wake_requested();
-}
-
-static inline int prcmu_set_display_clocks(void)
-{
-	return db8500_prcmu_set_display_clocks();
-}
-
-static inline int prcmu_disable_dsipll(void)
-{
-	return db8500_prcmu_disable_dsipll();
-}
-
-static inline int prcmu_enable_dsipll(void)
-{
-	return db8500_prcmu_enable_dsipll();
 }
 
 static inline int prcmu_config_esram0_deep_sleep(u8 state)
@@ -406,7 +387,7 @@ static inline int prcmu_config_a9wdog(u8 num, bool sleep_auto_off)
 }
 #else
 
-static inline void prcmu_early_init(u32 phy_base, u32 size) {}
+static inline void prcmu_early_init(void) {}
 
 static inline int prcmu_set_power_state(u8 state, bool keep_ulp_clk,
 	bool keep_ap_pll)
@@ -489,11 +470,6 @@ static inline int prcmu_get_arm_opp(void)
 	return ARM_100_OPP;
 }
 
-static inline int prcmu_set_ddr_opp(u8 opp)
-{
-	return 0;
-}
-
 static inline int prcmu_get_ddr_opp(void)
 {
 	return DDR_100_OPP;
@@ -518,21 +494,6 @@ static inline void prcmu_modem_reset(void) {}
 static inline bool prcmu_is_ac_wake_requested(void)
 {
 	return false;
-}
-
-static inline int prcmu_set_display_clocks(void)
-{
-	return 0;
-}
-
-static inline int prcmu_disable_dsipll(void)
-{
-	return 0;
-}
-
-static inline int prcmu_enable_dsipll(void)
-{
-	return 0;
 }
 
 static inline int prcmu_config_esram0_deep_sleep(u8 state)

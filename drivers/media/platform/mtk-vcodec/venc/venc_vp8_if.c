@@ -1,17 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2016 MediaTek Inc.
  * Author: Daniel Hsiao <daniel.hsiao@mediatek.com>
  *         PoChun Lin <pochun.lin@mediatek.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include <linux/interrupt.h>
@@ -26,7 +17,6 @@
 #include "../venc_drv_base.h"
 #include "../venc_ipi_msg.h"
 #include "../venc_vpu_if.h"
-#include "mtk_vpu.h"
 
 #define VENC_BITSTREAM_FRAME_SIZE 0x0098
 #define VENC_BITSTREAM_HEADER_LEN 0x00e8
@@ -34,7 +24,7 @@
 /* This ac_tag is vp8 frame tag. */
 #define MAX_AC_TAG_SIZE 10
 
-/**
+/*
  * enum venc_vp8_vpu_work_buf - vp8 encoder buffer index
  */
 enum venc_vp8_vpu_work_buf {
@@ -56,6 +46,8 @@ enum venc_vp8_vpu_work_buf {
 
 /*
  * struct venc_vp8_vpu_config - Structure for vp8 encoder configuration
+ *                              AP-W/R : AP is writer/reader on this item
+ *                              VPU-W/R: VPU is write/reader on this item
  * @input_fourcc: input fourcc
  * @bitrate: target bitrate (in bps)
  * @pic_w: picture width. Picture size is visible stream resolution, in pixels,
@@ -83,14 +75,14 @@ struct venc_vp8_vpu_config {
 };
 
 /*
- * struct venc_vp8_vpu_buf -Structure for buffer information
- * @align: buffer alignment (in bytes)
+ * struct venc_vp8_vpu_buf - Structure for buffer information
+ *                           AP-W/R : AP is writer/reader on this item
+ *                           VPU-W/R: VPU is write/reader on this item
  * @iova: IO virtual address
  * @vpua: VPU side memory addr which is used by RC_CODE
  * @size: buffer size (in bytes)
  */
 struct venc_vp8_vpu_buf {
-	u32 align;
 	u32 iova;
 	u32 vpua;
 	u32 size;
@@ -98,6 +90,8 @@ struct venc_vp8_vpu_buf {
 
 /*
  * struct venc_vp8_vsi - Structure for VPU driver control and info share
+ *                       AP-W/R : AP is writer/reader on this item
+ *                       VPU-W/R: VPU is write/reader on this item
  * This structure is allocated in VPU side and shared to AP side.
  * @config: vp8 encoder configuration
  * @work_bufs: working buffer information in VPU side
@@ -138,12 +132,6 @@ struct venc_vp8_inst {
 	struct mtk_vcodec_ctx *ctx;
 };
 
-static inline void vp8_enc_write_reg(struct venc_vp8_inst *inst, u32 addr,
-				     u32 val)
-{
-	writel(val, inst->hw_base + addr);
-}
-
 static inline u32 vp8_enc_read_reg(struct venc_vp8_inst *inst, u32 addr)
 {
 	return readl(inst->hw_base + addr);
@@ -157,7 +145,7 @@ static void vp8_enc_free_work_buf(struct venc_vp8_inst *inst)
 
 	/* Buffers need to be freed by AP. */
 	for (i = 0; i < VENC_VP8_VPU_WORK_BUF_MAX; i++) {
-		if ((inst->work_bufs[i].size == 0))
+		if (inst->work_bufs[i].size == 0)
 			continue;
 		mtk_vcodec_mem_free(inst->ctx, &inst->work_bufs[i]);
 	}
@@ -174,7 +162,7 @@ static int vp8_enc_alloc_work_buf(struct venc_vp8_inst *inst)
 	mtk_vcodec_debug_enter(inst);
 
 	for (i = 0; i < VENC_VP8_VPU_WORK_BUF_MAX; i++) {
-		if ((wb[i].size == 0))
+		if (wb[i].size == 0)
 			continue;
 		/*
 		 * This 'wb' structure is set by VPU side and shared to AP for
@@ -201,10 +189,12 @@ static int vp8_enc_alloc_work_buf(struct venc_vp8_inst *inst)
 		if (i == VENC_VP8_VPU_WORK_BUF_RC_CODE ||
 		    i == VENC_VP8_VPU_WORK_BUF_RC_CODE2 ||
 		    i == VENC_VP8_VPU_WORK_BUF_RC_CODE3) {
+			struct mtk_vcodec_fw *handler;
 			void *tmp_va;
 
-			tmp_va = vpu_mapping_dm_addr(inst->vpu_inst.dev,
-						     wb[i].vpua);
+			handler = inst->vpu_inst.ctx->dev->fw_handler;
+			tmp_va = mtk_vcodec_fw_map_dm_addr(handler,
+							   wb[i].vpua);
 			memcpy(inst->work_bufs[i].va, tmp_va, wb[i].size);
 		}
 		wb[i].iova = inst->work_bufs[i].dma_addr;
@@ -312,7 +302,8 @@ static int vp8_enc_encode_frame(struct venc_vp8_inst *inst,
 
 	mtk_vcodec_debug(inst, "->frm_cnt=%d", inst->frm_cnt);
 
-	ret = vpu_enc_encode(&inst->vpu_inst, 0, frm_buf, bs_buf, bs_size);
+	ret = vpu_enc_encode(&inst->vpu_inst, 0, frm_buf, bs_buf, bs_size,
+			     NULL);
 	if (ret)
 		return ret;
 
@@ -334,7 +325,7 @@ static int vp8_enc_encode_frame(struct venc_vp8_inst *inst,
 	return ret;
 }
 
-static int vp8_enc_init(struct mtk_vcodec_ctx *ctx, unsigned long *handle)
+static int vp8_enc_init(struct mtk_vcodec_ctx *ctx)
 {
 	int ret = 0;
 	struct venc_vp8_inst *inst;
@@ -345,7 +336,6 @@ static int vp8_enc_init(struct mtk_vcodec_ctx *ctx, unsigned long *handle)
 
 	inst->ctx = ctx;
 	inst->vpu_inst.ctx = ctx;
-	inst->vpu_inst.dev = ctx->dev->vpu_plat_dev;
 	inst->vpu_inst.id = IPI_VENC_VP8;
 	inst->hw_base = mtk_vcodec_get_reg_addr(inst->ctx, VENC_LT_SYS);
 
@@ -360,12 +350,12 @@ static int vp8_enc_init(struct mtk_vcodec_ctx *ctx, unsigned long *handle)
 	if (ret)
 		kfree(inst);
 	else
-		(*handle) = (unsigned long)inst;
+		ctx->drv_handle = inst;
 
 	return ret;
 }
 
-static int vp8_enc_encode(unsigned long handle,
+static int vp8_enc_encode(void *handle,
 			  enum venc_start_opt opt,
 			  struct venc_frm_buf *frm_buf,
 			  struct mtk_vcodec_mem *bs_buf,
@@ -402,7 +392,7 @@ encode_err:
 	return ret;
 }
 
-static int vp8_enc_set_param(unsigned long handle,
+static int vp8_enc_set_param(void *handle,
 			     enum venc_set_param_type type,
 			     struct venc_enc_param *enc_prm)
 {
@@ -453,7 +443,7 @@ static int vp8_enc_set_param(unsigned long handle,
 	return ret;
 }
 
-static int vp8_enc_deinit(unsigned long handle)
+static int vp8_enc_deinit(void *handle)
 {
 	int ret = 0;
 	struct venc_vp8_inst *inst = (struct venc_vp8_inst *)handle;
@@ -471,16 +461,9 @@ static int vp8_enc_deinit(unsigned long handle)
 	return ret;
 }
 
-static struct venc_common_if venc_vp8_if = {
-	vp8_enc_init,
-	vp8_enc_encode,
-	vp8_enc_set_param,
-	vp8_enc_deinit,
+const struct venc_common_if venc_vp8_if = {
+	.init = vp8_enc_init,
+	.encode = vp8_enc_encode,
+	.set_param = vp8_enc_set_param,
+	.deinit = vp8_enc_deinit,
 };
-
-struct venc_common_if *get_vp8_enc_comm_if(void);
-
-struct venc_common_if *get_vp8_enc_comm_if(void)
-{
-	return &venc_vp8_if;
-}

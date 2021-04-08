@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Media device
  *
@@ -5,19 +6,6 @@
  *
  * Contacts: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
  *	     Sakari Ailus <sakari.ailus@iki.fi>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
 #ifndef _MEDIA_DEVICE_H
@@ -31,6 +19,7 @@
 
 struct ida;
 struct device;
+struct media_device;
 
 /**
  * struct media_entity_notify - Media Entity Notify
@@ -39,8 +28,10 @@ struct device;
  * @notify_data: Input data to invoke the callback
  * @notify: Callback function pointer
  *
- * Drivers may register a callback to take action when
- * new entities get registered with the media device.
+ * Drivers may register a callback to take action when new entities get
+ * registered with the media device. This handler is intended for creating
+ * links between existing entities and should not create entities and register
+ * them.
  */
 struct media_entity_notify {
 	struct list_head list;
@@ -49,18 +40,49 @@ struct media_entity_notify {
 };
 
 /**
+ * struct media_device_ops - Media device operations
+ * @link_notify: Link state change notification callback. This callback is
+ *		 called with the graph_mutex held.
+ * @req_alloc: Allocate a request. Set this if you need to allocate a struct
+ *	       larger then struct media_request. @req_alloc and @req_free must
+ *	       either both be set or both be NULL.
+ * @req_free: Free a request. Set this if @req_alloc was set as well, leave
+ *	      to NULL otherwise.
+ * @req_validate: Validate a request, but do not queue yet. The req_queue_mutex
+ *	          lock is held when this op is called.
+ * @req_queue: Queue a validated request, cannot fail. If something goes
+ *	       wrong when queueing this request then it should be marked
+ *	       as such internally in the driver and any related buffers
+ *	       must eventually return to vb2 with state VB2_BUF_STATE_ERROR.
+ *	       The req_queue_mutex lock is held when this op is called.
+ *	       It is important that vb2 buffer objects are queued last after
+ *	       all other object types are queued: queueing a buffer kickstarts
+ *	       the request processing, so all other objects related to the
+ *	       request (and thus the buffer) must be available to the driver.
+ *	       And once a buffer is queued, then the driver can complete
+ *	       or delete objects from the request before req_queue exits.
+ */
+struct media_device_ops {
+	int (*link_notify)(struct media_link *link, u32 flags,
+			   unsigned int notification);
+	struct media_request *(*req_alloc)(struct media_device *mdev);
+	void (*req_free)(struct media_request *req);
+	int (*req_validate)(struct media_request *req);
+	void (*req_queue)(struct media_request *req);
+};
+
+/**
  * struct media_device - Media device
  * @dev:	Parent device
  * @devnode:	Media device node
  * @driver_name: Optional device driver name. If not set, calls to
- *		%MEDIA_IOC_DEVICE_INFO will return dev->driver->name.
+ *		%MEDIA_IOC_DEVICE_INFO will return ``dev->driver->name``.
  *		This is needed for USB drivers for example, as otherwise
  *		they'll all appear as if the driver name was "usb".
  * @model:	Device model name
  * @serial:	Device serial number (optional)
  * @bus_info:	Unique and stable device location identifier
  * @hw_revision: Hardware device revision
- * @driver_version: Device driver version
  * @topology_version: Monotonic counter for storing the version of the graph
  *		topology. Should be incremented each time the topology changes.
  * @id:		Unique ID used on the last registered graph object
@@ -80,8 +102,10 @@ struct media_entity_notify {
  * @enable_source: Enable Source Handler function pointer
  * @disable_source: Disable Source Handler function pointer
  *
- * @link_notify: Link state change notification callback. This callback is
- *		 called with the graph_mutex held.
+ * @ops:	Operation handler callbacks
+ * @req_queue_mutex: Serialise the MEDIA_REQUEST_IOC_QUEUE ioctl w.r.t.
+ *		     other operations that stop or start streaming.
+ * @request_id: Used to generate unique request IDs
  *
  * This structure represents an abstract high-level media device. It allows easy
  * access to entities and provides basic media device-level support. The
@@ -102,16 +126,20 @@ struct media_entity_notify {
  * sink entity  and deactivate the link between them. Drivers
  * should call this handler to release the source.
  *
- * Note: Bridge driver is expected to implement and set the
- * handler when media_device is registered or when
- * bridge driver finds the media_device during probe.
- * Bridge driver sets source_priv with information
- * necessary to run enable/disable source handlers.
- *
  * Use-case: find tuner entity connected to the decoder
  * entity and check if it is available, and activate the
- * the link between them from enable_source and deactivate
- * from disable_source.
+ * link between them from @enable_source and deactivate
+ * from @disable_source.
+ *
+ * .. note::
+ *
+ *    Bridge driver is expected to implement and set the
+ *    handler when &media_device is registered or when
+ *    bridge driver finds the media_device during probe.
+ *    Bridge driver sets source_priv with information
+ *    necessary to run @enable_source and @disable_source handlers.
+ *    Callers should hold graph_mutex to access and call @enable_source
+ *    and @disable_source handlers.
  */
 struct media_device {
 	/* dev->driver_data points to this struct. */
@@ -123,7 +151,6 @@ struct media_device {
 	char serial[40];
 	char bus_info[32];
 	u32 hw_revision;
-	u32 driver_version;
 
 	u64 topology_version;
 
@@ -141,15 +168,17 @@ struct media_device {
 
 	/* Serializes graph operations. */
 	struct mutex graph_mutex;
-	struct media_entity_graph pm_count_walk;
+	struct media_graph pm_count_walk;
 
 	void *source_priv;
 	int (*enable_source)(struct media_entity *entity,
 			     struct media_pipeline *pipe);
 	void (*disable_source)(struct media_entity *entity);
 
-	int (*link_notify)(struct media_link *link, u32 flags,
-			   unsigned int notification);
+	const struct media_device_ops *ops;
+
+	struct mutex req_queue_mutex;
+	atomic_t request_id;
 };
 
 /* We don't need to include pci.h or usb.h here */
@@ -168,7 +197,7 @@ struct usb_device;
  * @ent_enum: Entity enumeration to be initialised
  * @mdev: The related media device
  *
- * Returns zero on success or a negative error code.
+ * Return: zero on success or a negative error code.
  */
 static inline __must_check int media_entity_enum_init(
 	struct media_entity_enum *ent_enum, struct media_device *mdev)
@@ -211,36 +240,33 @@ void media_device_cleanup(struct media_device *mdev);
  *
  * Users, should, instead, call the media_device_register() macro.
  *
- * The caller is responsible for initializing the media_device structure before
- * registration. The following fields must be set:
+ * The caller is responsible for initializing the &media_device structure
+ * before registration. The following fields of &media_device must be set:
  *
- *  - dev must point to the parent device (usually a &pci_dev, &usb_interface or
- *    &platform_device instance).
+ *  - &media_entity.dev must point to the parent device (usually a &pci_dev,
+ *    &usb_interface or &platform_device instance).
  *
- *  - model must be filled with the device model name as a NUL-terminated UTF-8
- *    string. The device/model revision must not be stored in this field.
+ *  - &media_entity.model must be filled with the device model name as a
+ *    NUL-terminated UTF-8 string. The device/model revision must not be
+ *    stored in this field.
  *
  * The following fields are optional:
  *
- *  - serial is a unique serial number stored as a NUL-terminated ASCII string.
- *    The field is big enough to store a GUID in text form. If the hardware
- *    doesn't provide a unique serial number this field must be left empty.
+ *  - &media_entity.serial is a unique serial number stored as a
+ *    NUL-terminated ASCII string. The field is big enough to store a GUID
+ *    in text form. If the hardware doesn't provide a unique serial number
+ *    this field must be left empty.
  *
- *  - bus_info represents the location of the device in the system as a
- *    NUL-terminated ASCII string. For PCI/PCIe devices bus_info must be set to
- *    "PCI:" (or "PCIe:") followed by the value of pci_name(). For USB devices,
- *    the usb_make_path() function must be used. This field is used by
- *    applications to distinguish between otherwise identical devices that don't
- *    provide a serial number.
+ *  - &media_entity.bus_info represents the location of the device in the
+ *    system as a NUL-terminated ASCII string. For PCI/PCIe devices
+ *    &media_entity.bus_info must be set to "PCI:" (or "PCIe:") followed by
+ *    the value of pci_name(). For USB devices,the usb_make_path() function
+ *    must be used. This field is used by applications to distinguish between
+ *    otherwise identical devices that don't provide a serial number.
  *
- *  - hw_revision is the hardware device revision in a driver-specific format.
- *    When possible the revision should be formatted with the KERNEL_VERSION
- *    macro.
- *
- *  - driver_version is formatted with the KERNEL_VERSION macro. The version
- *    minor must be incremented when new features are added to the userspace API
- *    without breaking binary compatibility. The version major must be
- *    incremented when binary compatibility is broken.
+ *  - &media_entity.hw_revision is the hardware device revision in a
+ *    driver-specific format. When possible the revision should be formatted
+ *    with the KERNEL_VERSION() macro.
  *
  * .. note::
  *
@@ -252,13 +278,22 @@ void media_device_cleanup(struct media_device *mdev);
  */
 int __must_check __media_device_register(struct media_device *mdev,
 					 struct module *owner);
+
+
+/**
+ * media_device_register() - Registers a media device element
+ *
+ * @mdev:	pointer to struct &media_device
+ *
+ * This macro calls __media_device_register() passing %THIS_MODULE as
+ * the __media_device_register() second argument (**owner**).
+ */
 #define media_device_register(mdev) __media_device_register(mdev, THIS_MODULE)
 
 /**
  * media_device_unregister() - Unregisters a media device element
  *
  * @mdev:	pointer to struct &media_device
- *
  *
  * It is safe to call this function on an unregistered (but initialised)
  * media device.
@@ -285,14 +320,15 @@ void media_device_unregister(struct media_device *mdev);
  * framework.
  *
  * If the device has pads, media_entity_pads_init() should be called before
- * this function. Otherwise, the &media_entity.@pad and &media_entity.@num_pads
+ * this function. Otherwise, the &media_entity.pad and &media_entity.num_pads
  * should be zeroed before calling this function.
  *
  * Entities have flags that describe the entity capabilities and state:
  *
- * %MEDIA_ENT_FL_DEFAULT indicates the default entity for a given type.
- *	This can be used to report the default audio and video devices or the
- *	default camera sensor.
+ * %MEDIA_ENT_FL_DEFAULT
+ *    indicates the default entity for a given type.
+ *    This can be used to report the default audio and video devices or the
+ *    default camera sensor.
  *
  * .. note::
  *
@@ -331,8 +367,10 @@ void media_device_unregister_entity(struct media_entity *entity);
  * @mdev:      The media device
  * @nptr:      The media_entity_notify
  *
- * Note: When a new entity is registered, all the registered
- * media_entity_notify callbacks are invoked.
+ * .. note::
+ *
+ *    When a new entity is registered, all the registered
+ *    media_entity_notify callbacks are invoked.
  */
 
 int __must_check media_device_register_entity_notify(struct media_device *mdev,
@@ -348,30 +386,6 @@ int __must_check media_device_register_entity_notify(struct media_device *mdev,
  */
 void media_device_unregister_entity_notify(struct media_device *mdev,
 					struct media_entity_notify *nptr);
-
-/**
- * media_device_get_devres() -	get media device as device resource
- *				creates if one doesn't exist
- *
- * @dev: pointer to struct &device.
- *
- * Sometimes, the media controller &media_device needs to be shared by more
- * than one driver. This function adds support for that, by dynamically
- * allocating the &media_device and allowing it to be obtained from the
- * struct &device associated with the common device where all sub-device
- * components belong. So, for example, on an USB device with multiple
- * interfaces, each interface may be handled by a separate per-interface
- * drivers. While each interface have its own &device, they all share a
- * common &device associated with the hole USB device.
- */
-struct media_device *media_device_get_devres(struct device *dev);
-
-/**
- * media_device_find_devres() - find media device as device resource
- *
- * @dev: pointer to struct &device.
- */
-struct media_device *media_device_find_devres(struct device *dev);
 
 /* Iterate over all entities. */
 #define media_device_for_each_entity(entity, mdev)			\
@@ -410,11 +424,13 @@ void media_device_pci_init(struct media_device *mdev,
  * @board_name:	media device name. If %NULL, the routine will use the usb
  *		product name, if available.
  * @driver_name: name of the driver. if %NULL, the routine will use the name
- *		given by udev->dev->driver->name, with is usually the wrong
+ *		given by ``udev->dev->driver->name``, with is usually the wrong
  *		thing to do.
  *
- * NOTE: It is better to call media_device_usb_init() instead, as
- * such macro fills driver_name with %KBUILD_MODNAME.
+ * .. note::
+ *
+ *    It is better to call media_device_usb_init() instead, as
+ *    such macro fills driver_name with %KBUILD_MODNAME.
  */
 void __media_device_usb_init(struct media_device *mdev,
 			     struct usb_device *udev,
@@ -448,14 +464,6 @@ static inline void media_device_unregister_entity_notify(
 					struct media_entity_notify *nptr)
 {
 }
-static inline struct media_device *media_device_get_devres(struct device *dev)
-{
-	return NULL;
-}
-static inline struct media_device *media_device_find_devres(struct device *dev)
-{
-	return NULL;
-}
 
 static inline void media_device_pci_init(struct media_device *mdev,
 					 struct pci_dev *pci_dev,
@@ -472,6 +480,19 @@ static inline void __media_device_usb_init(struct media_device *mdev,
 
 #endif /* CONFIG_MEDIA_CONTROLLER */
 
+/**
+ * media_device_usb_init() - create and initialize a
+ *	struct &media_device from a PCI device.
+ *
+ * @mdev:	pointer to struct &media_device
+ * @udev:	pointer to struct usb_device
+ * @name:	media device name. If %NULL, the routine will use the usb
+ *		product name, if available.
+ *
+ * This macro calls media_device_usb_init() passing the
+ * media_device_usb_init() **driver_name** parameter filled with
+ * %KBUILD_MODNAME.
+ */
 #define media_device_usb_init(mdev, udev, name) \
 	__media_device_usb_init(mdev, udev, name, KBUILD_MODNAME)
 

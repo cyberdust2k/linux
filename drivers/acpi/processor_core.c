@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2005 Intel Corporation
  * Copyright (C) 2009 Hewlett-Packard Development Company, L.P.
@@ -12,9 +13,6 @@
 #include <linux/export.h>
 #include <linux/acpi.h>
 #include <acpi/processor.h>
-
-#define _COMPONENT		ACPI_PROCESSOR_COMPONENT
-ACPI_MODULE_NAME("processor_core");
 
 static struct acpi_table_madt *get_madt_table(void)
 {
@@ -147,18 +145,16 @@ static phys_cpuid_t map_madt_entry(struct acpi_table_madt *madt,
 phys_cpuid_t __init acpi_map_madt_entry(u32 acpi_id)
 {
 	struct acpi_table_madt *madt = NULL;
-	acpi_size tbl_size;
 	phys_cpuid_t rv;
 
-	acpi_get_table_with_size(ACPI_SIG_MADT, 0,
-				 (struct acpi_table_header **)&madt,
-				 &tbl_size);
+	acpi_get_table(ACPI_SIG_MADT, 0,
+		       (struct acpi_table_header **)&madt);
 	if (!madt)
 		return PHYS_CPUID_INVALID;
 
 	rv = map_madt_entry(madt, 1, acpi_id);
 
-	early_acpi_os_unmap_memory(madt, tbl_size);
+	acpi_put_table((struct acpi_table_header *)madt);
 
 	return rv;
 }
@@ -207,6 +203,7 @@ phys_cpuid_t acpi_get_phys_id(acpi_handle handle, int type, u32 acpi_id)
 
 	return phys_id;
 }
+EXPORT_SYMBOL_GPL(acpi_get_phys_id);
 
 int acpi_map_cpuid(phys_cpuid_t phys_id, u32 acpi_id)
 {

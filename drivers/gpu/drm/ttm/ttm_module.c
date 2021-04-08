@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 OR MIT */
 /**************************************************************************
  *
  * Copyright (c) 2006-2009 VMware, Inc., Palo Alto, CA., USA
@@ -31,8 +32,9 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/sched.h>
-#include <drm/ttm/ttm_module.h>
 #include <drm/drm_sysfs.h>
+
+#include "ttm_module.h"
 
 static DECLARE_WAIT_QUEUE_HEAD(exit_q);
 static atomic_t device_released;

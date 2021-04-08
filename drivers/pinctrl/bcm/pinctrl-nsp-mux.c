@@ -348,7 +348,7 @@ static void nsp_pin_dbg_show(struct pinctrl_dev *pctrl_dev,
 	seq_printf(s, " %s", dev_name(pctrl_dev->dev));
 }
 
-static struct pinctrl_ops nsp_pinctrl_ops = {
+static const struct pinctrl_ops nsp_pinctrl_ops = {
 	.get_groups_count = nsp_get_groups_count,
 	.get_group_name = nsp_get_group_name,
 	.get_group_pins = nsp_get_group_pins,
@@ -460,8 +460,8 @@ static int nsp_pinmux_enable(struct pinctrl_dev *pctrl_dev,
 	const struct nsp_pin_function *func;
 	const struct nsp_pin_group *grp;
 
-	if (grp_select > pinctrl->num_groups ||
-		func_select > pinctrl->num_functions)
+	if (grp_select >= pinctrl->num_groups ||
+	    func_select >= pinctrl->num_functions)
 		return -EINVAL;
 
 	func = &pinctrl->functions[func_select];
@@ -518,7 +518,7 @@ static void nsp_gpio_disable_free(struct pinctrl_dev *pctrl_dev,
 	spin_unlock_irqrestore(&pinctrl->lock, flags);
 }
 
-static struct pinmux_ops nsp_pinmux_ops = {
+static const struct pinmux_ops nsp_pinmux_ops = {
 	.get_functions_count = nsp_get_functions_count,
 	.get_function_name = nsp_get_function_name,
 	.get_function_groups = nsp_get_function_groups,
@@ -571,21 +571,21 @@ static int nsp_pinmux_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, pinctrl);
 	spin_lock_init(&pinctrl->lock);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	pinctrl->base0 = devm_ioremap_resource(&pdev->dev, res);
+	pinctrl->base0 = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(pinctrl->base0))
 		return PTR_ERR(pinctrl->base0);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	pinctrl->base1 = devm_ioremap_nocache(&pdev->dev, res->start,
+	if (!res)
+		return -EINVAL;
+	pinctrl->base1 = devm_ioremap(&pdev->dev, res->start,
 					      resource_size(res));
 	if (!pinctrl->base1) {
 		dev_err(&pdev->dev, "unable to map I/O space\n");
 		return -ENOMEM;
 	}
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
-	pinctrl->base2 = devm_ioremap_resource(&pdev->dev, res);
+	pinctrl->base2 = devm_platform_ioremap_resource(pdev, 2);
 	if (IS_ERR(pinctrl->base2))
 		return PTR_ERR(pinctrl->base2);
 

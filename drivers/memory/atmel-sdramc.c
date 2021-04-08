@@ -1,22 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Atmel (Multi-port DDR-)SDRAM Controller driver
  *
  * Author: Alexandre Belloni <alexandre.belloni@free-electrons.com>
  *
  * Copyright (C) 2014 Atmel
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation version 2 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
  */
 
 #include <linux/clk.h>
@@ -53,12 +41,10 @@ static const struct of_device_id atmel_ramc_of_match[] = {
 
 static int atmel_ramc_probe(struct platform_device *pdev)
 {
-	const struct of_device_id *match;
 	const struct at91_ramc_caps *caps;
 	struct clk *clk;
 
-	match = of_match_device(atmel_ramc_of_match, &pdev->dev);
-	caps = match->data;
+	caps = of_device_get_match_data(&pdev->dev);
 
 	if (caps->has_ddrck) {
 		clk = devm_clk_get(&pdev->dev, "ddrck");
@@ -87,8 +73,4 @@ static struct platform_driver atmel_ramc_driver = {
 	},
 };
 
-static int __init atmel_ramc_init(void)
-{
-	return platform_driver_register(&atmel_ramc_driver);
-}
-device_initcall(atmel_ramc_init);
+builtin_platform_driver(atmel_ramc_driver);

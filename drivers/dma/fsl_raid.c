@@ -134,17 +134,9 @@ static void fsl_re_issue_pending(struct dma_chan *chan)
 
 static void fsl_re_desc_done(struct fsl_re_desc *desc)
 {
-	dma_async_tx_callback callback;
-	void *callback_param;
-
 	dma_cookie_complete(&desc->async_tx);
-
-	callback = desc->async_tx.callback;
-	callback_param = desc->async_tx.callback_param;
-	if (callback)
-		callback(callback_param);
-
 	dma_descriptor_unmap(&desc->async_tx);
+	dmaengine_desc_get_callback_invoke(&desc->async_tx, NULL);
 }
 
 static void fsl_re_cleanup_descs(struct fsl_re_chan *re_chan)
@@ -162,16 +154,14 @@ static void fsl_re_cleanup_descs(struct fsl_re_chan *re_chan)
 	fsl_re_issue_pending(&re_chan->chan);
 }
 
-static void fsl_re_dequeue(unsigned long data)
+static void fsl_re_dequeue(struct tasklet_struct *t)
 {
-	struct fsl_re_chan *re_chan;
+	struct fsl_re_chan *re_chan = from_tasklet(re_chan, t, irqtask);
 	struct fsl_re_desc *desc, *_desc;
 	struct fsl_re_hw_desc *hwdesc;
 	unsigned long flags;
 	unsigned int count, oub_count;
 	int found;
-
-	re_chan = dev_get_drvdata((struct device *)data);
 
 	fsl_re_cleanup_descs(re_chan);
 
@@ -670,7 +660,7 @@ static int fsl_re_chan_probe(struct platform_device *ofdev,
 
 	/* read irq property from dts */
 	chan->irq = irq_of_parse_and_map(np, 0);
-	if (chan->irq == NO_IRQ) {
+	if (!chan->irq) {
 		dev_err(dev, "No IRQ defined for JR %d\n", q);
 		ret = -ENODEV;
 		goto err_free;
@@ -679,7 +669,7 @@ static int fsl_re_chan_probe(struct platform_device *ofdev,
 	snprintf(chan->name, sizeof(chan->name), "re_jr%02d", q);
 
 	chandev = &chan_ofdev->dev;
-	tasklet_init(&chan->irqtask, fsl_re_dequeue, (unsigned long)chandev);
+	tasklet_setup(&chan->irqtask, fsl_re_dequeue);
 
 	ret = request_irq(chan->irq, fsl_re_isr, 0, chan->name, chandev);
 	if (ret) {
@@ -885,10 +875,11 @@ static int fsl_re_remove(struct platform_device *ofdev)
 	return 0;
 }
 
-static struct of_device_id fsl_re_ids[] = {
+static const struct of_device_id fsl_re_ids[] = {
 	{ .compatible = "fsl,raideng-v1.0", },
 	{}
 };
+MODULE_DEVICE_TABLE(of, fsl_re_ids);
 
 static struct platform_driver fsl_re_driver = {
 	.driver = {

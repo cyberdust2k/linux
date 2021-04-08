@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * ppa8548 setup and early boot code.
  *
@@ -7,11 +8,6 @@
  *
  * Based on the SBC8548 support - Copyright 2007 Wind River Systems Inc.
  * Based on the MPC8548CDS support - Copyright 2005 Freescale Inc.
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/stddef.h>
@@ -91,7 +87,6 @@ define_machine(ppa8548) {
 	.init_IRQ	= ppa8548_pic_init,
 	.show_cpuinfo	= ppa8548_show_cpuinfo,
 	.get_irq	= mpic_get_irq,
-	.restart	= fsl_rstcr_restart,
 	.calibrate_decr = generic_calibrate_decr,
 	.progress	= udbg_progress,
 };

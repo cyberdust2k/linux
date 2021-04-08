@@ -1,12 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /* Utility routines
  *
  * Copyright (C) 2015 Red Hat, Inc. All Rights Reserved.
  * Written by David Howells (dhowells@redhat.com)
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public Licence
- * as published by the Free Software Foundation; either version
- * 2 of the Licence, or (at your option) any later version.
  */
 
 #include <linux/ip.h>
@@ -30,6 +26,7 @@ int rxrpc_extract_addr_from_skb(struct sockaddr_rxrpc *srx, struct sk_buff *skb)
 		srx->transport.sin.sin_addr.s_addr = ip_hdr(skb)->saddr;
 		return 0;
 
+#ifdef CONFIG_AF_RXRPC_IPV6
 	case ETH_P_IPV6:
 		srx->transport_type = SOCK_DGRAM;
 		srx->transport_len = sizeof(srx->transport.sin6);
@@ -37,6 +34,7 @@ int rxrpc_extract_addr_from_skb(struct sockaddr_rxrpc *srx, struct sk_buff *skb)
 		srx->transport.sin6.sin6_port = udp_hdr(skb)->source;
 		srx->transport.sin6.sin6_addr = ipv6_hdr(skb)->saddr;
 		return 0;
+#endif
 
 	default:
 		pr_warn_ratelimited("AF_RXRPC: Unknown eth protocol %u\n",

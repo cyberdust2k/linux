@@ -1,16 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Clock implementation for VIA/Wondermedia SoC's
  * Copyright (C) 2012 Tony Prisk <linux@prisktech.co.nz>
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
  */
 
 #include <linux/io.h>
@@ -232,7 +223,7 @@ static const struct clk_ops vt8500_gated_divisor_clk_ops = {
 static __init void vtwm_device_clk_init(struct device_node *node)
 {
 	u32 en_reg, div_reg;
-	struct clk *clk;
+	struct clk_hw *hw;
 	struct clk_device *dev_clk;
 	const char *clk_name = node->name;
 	const char *parent_name;
@@ -301,13 +292,14 @@ static __init void vtwm_device_clk_init(struct device_node *node)
 
 	dev_clk->hw.init = &init;
 
-	clk = clk_register(NULL, &dev_clk->hw);
-	if (WARN_ON(IS_ERR(clk))) {
+	hw = &dev_clk->hw;
+	rc = clk_hw_register(NULL, hw);
+	if (WARN_ON(rc)) {
 		kfree(dev_clk);
 		return;
 	}
-	rc = of_clk_add_provider(node, of_clk_src_simple_get, clk);
-	clk_register_clkdev(clk, clk_name, NULL);
+	rc = of_clk_add_hw_provider(node, of_clk_hw_simple_get, hw);
+	clk_hw_register_clkdev(hw, clk_name, NULL);
 }
 CLK_OF_DECLARE(vt8500_device, "via,vt8500-device-clock", vtwm_device_clk_init);
 
@@ -681,7 +673,7 @@ static const struct clk_ops vtwm_pll_ops = {
 static __init void vtwm_pll_clk_init(struct device_node *node, int pll_type)
 {
 	u32 reg;
-	struct clk *clk;
+	struct clk_hw *hw;
 	struct clk_pll *pll_clk;
 	const char *clk_name = node->name;
 	const char *parent_name;
@@ -714,13 +706,14 @@ static __init void vtwm_pll_clk_init(struct device_node *node, int pll_type)
 
 	pll_clk->hw.init = &init;
 
-	clk = clk_register(NULL, &pll_clk->hw);
-	if (WARN_ON(IS_ERR(clk))) {
+	hw = &pll_clk->hw;
+	rc = clk_hw_register(NULL, &pll_clk->hw);
+	if (WARN_ON(rc)) {
 		kfree(pll_clk);
 		return;
 	}
-	rc = of_clk_add_provider(node, of_clk_src_simple_get, clk);
-	clk_register_clkdev(clk, clk_name, NULL);
+	rc = of_clk_add_hw_provider(node, of_clk_hw_simple_get, hw);
+	clk_hw_register_clkdev(hw, clk_name, NULL);
 }
 
 

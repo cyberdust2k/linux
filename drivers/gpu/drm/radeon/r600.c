@@ -25,19 +25,28 @@
  *          Alex Deucher
  *          Jerome Glisse
  */
-#include <linux/slab.h>
-#include <linux/seq_file.h>
+
 #include <linux/firmware.h>
 #include <linux/module.h>
-#include <drm/drmP.h>
+#include <linux/pci.h>
+#include <linux/slab.h>
+#include <linux/seq_file.h>
+
+#include <drm/drm_debugfs.h>
+#include <drm/drm_device.h>
+#include <drm/drm_vblank.h>
 #include <drm/radeon_drm.h>
+
+#include "atom.h"
+#include "avivod.h"
+#include "evergreen.h"
+#include "r600.h"
+#include "r600d.h"
+#include "rv770.h"
 #include "radeon.h"
 #include "radeon_asic.h"
 #include "radeon_audio.h"
 #include "radeon_mode.h"
-#include "r600d.h"
-#include "atom.h"
-#include "avivod.h"
 #include "radeon_ucode.h"
 
 /* Firmware Names */
@@ -105,8 +114,6 @@ static void r600_gpu_init(struct radeon_device *rdev);
 void r600_fini(struct radeon_device *rdev);
 void r600_irq_disable(struct radeon_device *rdev);
 static void r600_pcie_gen2_enable(struct radeon_device *rdev);
-extern int evergreen_rlc_resume(struct radeon_device *rdev);
-extern void rv770_set_clk_bypass_mode(struct radeon_device *rdev);
 
 /*
  * Indirect registers accessor
@@ -1074,7 +1081,6 @@ void r600_pcie_gart_tlb_flush(struct radeon_device *rdev)
 	if ((rdev->family >= CHIP_RV770) && (rdev->family <= CHIP_RV740) &&
 	    !(rdev->flags & RADEON_IS_AGP)) {
 		void __iomem *ptr = (void *)rdev->gart.ptr;
-		u32 tmp;
 
 		/* r7xx hw bug.  write to HDP_DEBUG1 followed by fb read
 		 * rather than write to HDP_REG_COHERENCY_FLUSH_CNTL
@@ -1082,7 +1088,7 @@ void r600_pcie_gart_tlb_flush(struct radeon_device *rdev)
 		 * method for them.
 		 */
 		WREG32(HDP_DEBUG1, 0);
-		tmp = readl((void __iomem *)ptr);
+		readl((void __iomem *)ptr);
 	} else
 		WREG32(R_005480_HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
 
@@ -1094,7 +1100,7 @@ void r600_pcie_gart_tlb_flush(struct radeon_device *rdev)
 		tmp = RREG32(VM_CONTEXT0_REQUEST_RESPONSE);
 		tmp = (tmp & RESPONSE_TYPE_MASK) >> RESPONSE_TYPE_SHIFT;
 		if (tmp == 2) {
-			printk(KERN_WARNING "[drm] r600 flush TLB failed\n");
+			pr_warn("[drm] r600 flush TLB failed\n");
 			return;
 		}
 		if (tmp) {
@@ -2550,8 +2556,7 @@ int r600_init_microcode(struct radeon_device *rdev)
 	if (err)
 		goto out;
 	if (rdev->pfp_fw->size != pfp_req_size) {
-		printk(KERN_ERR
-		       "r600_cp: Bogus length %zu in firmware \"%s\"\n",
+		pr_err("r600_cp: Bogus length %zu in firmware \"%s\"\n",
 		       rdev->pfp_fw->size, fw_name);
 		err = -EINVAL;
 		goto out;
@@ -2562,8 +2567,7 @@ int r600_init_microcode(struct radeon_device *rdev)
 	if (err)
 		goto out;
 	if (rdev->me_fw->size != me_req_size) {
-		printk(KERN_ERR
-		       "r600_cp: Bogus length %zu in firmware \"%s\"\n",
+		pr_err("r600_cp: Bogus length %zu in firmware \"%s\"\n",
 		       rdev->me_fw->size, fw_name);
 		err = -EINVAL;
 	}
@@ -2573,8 +2577,7 @@ int r600_init_microcode(struct radeon_device *rdev)
 	if (err)
 		goto out;
 	if (rdev->rlc_fw->size != rlc_req_size) {
-		printk(KERN_ERR
-		       "r600_rlc: Bogus length %zu in firmware \"%s\"\n",
+		pr_err("r600_rlc: Bogus length %zu in firmware \"%s\"\n",
 		       rdev->rlc_fw->size, fw_name);
 		err = -EINVAL;
 	}
@@ -2583,15 +2586,12 @@ int r600_init_microcode(struct radeon_device *rdev)
 		snprintf(fw_name, sizeof(fw_name), "radeon/%s_smc.bin", smc_chip_name);
 		err = request_firmware(&rdev->smc_fw, fw_name, rdev->dev);
 		if (err) {
-			printk(KERN_ERR
-			       "smc: error loading firmware \"%s\"\n",
-			       fw_name);
+			pr_err("smc: error loading firmware \"%s\"\n", fw_name);
 			release_firmware(rdev->smc_fw);
 			rdev->smc_fw = NULL;
 			err = 0;
 		} else if (rdev->smc_fw->size != smc_req_size) {
-			printk(KERN_ERR
-			       "smc: Bogus length %zu in firmware \"%s\"\n",
+			pr_err("smc: Bogus length %zu in firmware \"%s\"\n",
 			       rdev->smc_fw->size, fw_name);
 			err = -EINVAL;
 		}
@@ -2600,8 +2600,7 @@ int r600_init_microcode(struct radeon_device *rdev)
 out:
 	if (err) {
 		if (err != -EINVAL)
-			printk(KERN_ERR
-			       "r600_cp: Failed to load firmware \"%s\"\n",
+			pr_err("r600_cp: Failed to load firmware \"%s\"\n",
 			       fw_name);
 		release_firmware(rdev->pfp_fw);
 		rdev->pfp_fw = NULL;
@@ -2631,11 +2630,7 @@ u32 r600_gfx_get_rptr(struct radeon_device *rdev,
 u32 r600_gfx_get_wptr(struct radeon_device *rdev,
 		      struct radeon_ring *ring)
 {
-	u32 wptr;
-
-	wptr = RREG32(R600_CP_RB_WPTR);
-
-	return wptr;
+	return RREG32(R600_CP_RB_WPTR);
 }
 
 void r600_gfx_set_wptr(struct radeon_device *rdev,
@@ -2851,7 +2846,7 @@ int r600_ring_test(struct radeon_device *rdev, struct radeon_ring *ring)
 		tmp = RREG32(scratch);
 		if (tmp == 0xDEADBEEF)
 			break;
-		DRM_UDELAY(1);
+		udelay(1);
 	}
 	if (i < rdev->usec_timeout) {
 		DRM_INFO("ring test on %d succeeded in %d usecs\n", ring->idx, i);
@@ -2959,7 +2954,7 @@ bool r600_semaphore_ring_emit(struct radeon_device *rdev,
  * @src_offset: src GPU address
  * @dst_offset: dst GPU address
  * @num_gpu_pages: number of GPU pages to xfer
- * @fence: radeon fence object
+ * @resv: DMA reservation object to manage fences
  *
  * Copy GPU paging using the CP DMA engine (r6xx+).
  * Used by the radeon ttm implementation to move pages if
@@ -2968,7 +2963,7 @@ bool r600_semaphore_ring_emit(struct radeon_device *rdev,
 struct radeon_fence *r600_copy_cpdma(struct radeon_device *rdev,
 				     uint64_t src_offset, uint64_t dst_offset,
 				     unsigned num_gpu_pages,
-				     struct reservation_object *resv)
+				     struct dma_resv *resv)
 {
 	struct radeon_fence *fence;
 	struct radeon_sync sync;
@@ -3058,7 +3053,7 @@ static void r600_uvd_init(struct radeon_device *rdev)
 		 * there. So it is pointless to try to go through that code
 		 * hence why we disable uvd here.
 		 */
-		rdev->has_uvd = 0;
+		rdev->has_uvd = false;
 		return;
 	}
 	rdev->ring[R600_RING_TYPE_UVD_INDEX].ring_obj = NULL;
@@ -3097,7 +3092,7 @@ static void r600_uvd_resume(struct radeon_device *rdev)
 		return;
 
 	ring = &rdev->ring[R600_RING_TYPE_UVD_INDEX];
-	r = radeon_ring_init(rdev, ring, ring->ring_size, 0, RADEON_CP_PACKET2);
+	r = radeon_ring_init(rdev, ring, ring->ring_size, 0, PACKET0(UVD_NO_OP, 0));
 	if (r) {
 		dev_err(rdev->dev, "failed initializing UVD ring (%d).\n", r);
 		return;
@@ -3196,7 +3191,7 @@ void r600_vga_set_state(struct radeon_device *rdev, bool state)
 	uint32_t temp;
 
 	temp = RREG32(CONFIG_CNTL);
-	if (state == false) {
+	if (!state) {
 		temp &= ~(1<<0);
 		temp |= (1<<1);
 	} else {
@@ -3444,7 +3439,7 @@ int r600_ib_test(struct radeon_device *rdev, struct radeon_ring *ring)
 		tmp = RREG32(scratch);
 		if (tmp == 0xDEADBEEF)
 			break;
-		DRM_UDELAY(1);
+		udelay(1);
 	}
 	if (i < rdev->usec_timeout) {
 		DRM_INFO("ib test on ring %d succeeded in %u usecs\n", ib.fence->ring, i);
@@ -3701,8 +3696,8 @@ int r600_irq_init(struct radeon_device *rdev)
 	}
 
 	/* setup interrupt control */
-	/* set dummy read address to ring address */
-	WREG32(INTERRUPT_CNTL2, rdev->ih.gpu_addr >> 8);
+	/* set dummy read address to dummy page address */
+	WREG32(INTERRUPT_CNTL2, rdev->dummy_page.addr >> 8);
 	interrupt_cntl = RREG32(INTERRUPT_CNTL);
 	/* IH_DUMMY_RD_OVERRIDE=0 - dummy read disabled with msi, enabled without msi
 	 * IH_DUMMY_RD_OVERRIDE=1 - dummy read controlled by IH_DUMMY_RD_EN
@@ -3999,7 +3994,7 @@ static void r600_irq_ack(struct radeon_device *rdev)
 			WREG32(DC_HPD5_INT_CONTROL, tmp);
 		}
 		if (rdev->irq.stat_regs.r600.disp_int_cont2 & DC_HPD6_INTERRUPT) {
-			tmp = RREG32(DC_HPD5_INT_CONTROL);
+			tmp = RREG32(DC_HPD6_INT_CONTROL);
 			tmp |= DC_HPDx_INT_ACK;
 			WREG32(DC_HPD6_INT_CONTROL, tmp);
 		}
@@ -4378,7 +4373,7 @@ int r600_debugfs_mc_info_init(struct radeon_device *rdev)
 
 /**
  * r600_mmio_hdp_flush - flush Host Data Path cache via MMIO
- * rdev: radeon device structure
+ * @rdev: radeon device structure
  *
  * Some R6XX/R7XX don't seem to take into account HDP flushes performed
  * through the ring buffer. This leads to corruption in rendering, see
@@ -4395,10 +4390,9 @@ void r600_mmio_hdp_flush(struct radeon_device *rdev)
 	if ((rdev->family >= CHIP_RV770) && (rdev->family <= CHIP_RV740) &&
 	    rdev->vram_scratch.ptr && !(rdev->flags & RADEON_IS_AGP)) {
 		void __iomem *ptr = (void *)rdev->vram_scratch.ptr;
-		u32 tmp;
 
 		WREG32(HDP_DEBUG1, 0);
-		tmp = readl((void __iomem *)ptr);
+		readl((void __iomem *)ptr);
 	} else
 		WREG32(R_005480_HDP_MEM_COHERENCY_FLUSH_CNTL, 0x1);
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 /*
  * Wind River SBC8548 setup and early boot code.
  *
@@ -6,12 +7,6 @@
  * By Paul Gortmaker (see MAINTAINERS for contact information)
  *
  * Based largely on the MPC8548CDS support - Copyright 2005 Freescale Inc.
- *
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
  */
 
 #include <linux/stddef.h>
@@ -29,8 +24,8 @@
 #include <linux/interrupt.h>
 #include <linux/fsl_devices.h>
 #include <linux/of_platform.h>
+#include <linux/pgtable.h>
 
-#include <asm/pgtable.h>
 #include <asm/page.h>
 #include <linux/atomic.h>
 #include <asm/time.h>
@@ -130,7 +125,6 @@ define_machine(sbc8548) {
 	.init_IRQ	= sbc8548_pic_init,
 	.show_cpuinfo	= sbc8548_show_cpuinfo,
 	.get_irq	= mpic_get_irq,
-	.restart	= fsl_rstcr_restart,
 #ifdef CONFIG_PCI
 	.pcibios_fixup_bus	= fsl_pcibios_fixup_bus,
 	.pcibios_fixup_phb      = fsl_pcibios_fixup_phb,

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  *	linux/arch/alpha/kernel/machvec_impl.h
  *
@@ -5,8 +6,6 @@
  *
  * This file has goodies to help simplify instantiation of machine vectors.
  */
-
-#include <asm/pgalloc.h>
 
 /* Whee.  These systems don't have an HAE:
        IRONGATE, MARVEL, POLARIS, TSUNAMI, TITAN, WILDFIRE
@@ -144,9 +143,11 @@
    else beforehand.  Fine.  We'll do it ourselves.  */
 #if 0
 #define ALIAS_MV(system) \
-  struct alpha_machine_vector alpha_mv __attribute__((alias(#system "_mv")));
+  struct alpha_machine_vector alpha_mv __attribute__((alias(#system "_mv"))); \
+  EXPORT_SYMBOL(alpha_mv);
 #else
 #define ALIAS_MV(system) \
-  asm(".global alpha_mv\nalpha_mv = " #system "_mv");
+  asm(".global alpha_mv\nalpha_mv = " #system "_mv"); \
+  EXPORT_SYMBOL(alpha_mv);
 #endif
 #endif /* GENERIC */
